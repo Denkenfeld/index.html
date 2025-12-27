@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyber Parallelogram Packer - Game Edition</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@300;500&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+    <style>
+        :root {
+            --neon-cyan: #00f2ff;
+            --neon-magenta: #ff00ff;
+            --bg-dark: #050505;
+            --glass: rgba(0, 15, 30, 0.9);
+        }
+
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background-color: var(--bg-dark);
+            color: var(--neon-cyan);
+            font-family: 'Rajdhani', sans-serif;
+            overflow: hidden; display: flex;
+            flex-direction: row;
+        }
+
+        #ui-panel {
+            width: 22%; min-width: 300px; height: 100vh;
+            background: var(--glass); backdrop-filter: blur(20px);
+            border-right: 3px solid var(--neon-cyan); z-index: 200; padding: 30px;
+            box-sizing: border-box; overflow-y: auto; display: flex; flex-direction: column; gap: 15px;
+        }
+
+        #canvas-container { flex-grow: 1; position: relative; height: 100vh; overflow: hidden; }
+
+        /* GAME UI */
+        #play-game-btn {
+            position: fixed; top: 20px; right: 20px; z-index: 500;
+            background: var(--neon-cyan); color: black; border: none;
+            padding: 10px 25px; font-family: 'Orbitron'; font-weight: bold;
+            cursor: pointer; box-shadow: 0 0 15px var(--neon-cyan);
+            clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
+        }
+
+        #game-overlay {
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            font-family: 'Orbitron'; font-size: 2rem; color: var(--neon-magenta);
+            text-shadow: 0 0 10px var(--neon-magenta); display: none; z-index: 400;
+        }
+
+        /* Retro Flicker Effekt */
+        .flicker { animation: flicker-anim 0.15s infinite; }
+        @keyframes flicker-anim {
+            0% { opacity: 0.9; } 50% { opacity: 1; } 100% { opacity: 0.8; }
+        }
+
+        .crt-scanline::before {
+            content: " "; display: block; position: absolute; top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 2; background-size: 100% 2px, 3px 100%; pointer-events: none;
+        }
+
+        @media (max-aspect-ratio: 1/1), (max-width: 768px) {
+            body, html { flex-direction: column; }
+            #ui-panel { height: 50vh; width: 100vw; min-width: unset; border-right: none; border-top: 3px solid var(--neon-cyan); }
+            #canvas-container { height: 50vh; width: 100vw; }
+        }
+
+        /* Standard Controls */
+        h1 { font-family: 'Orbitron'; font-size: 1.2rem; margin: 0; }
+        .control-group { display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid rgba(0, 242, 255, 0.15); padding-bottom: 12px; }
+        .row { display: flex; align-items: center; gap: 15px; }
+        label { font-size: 0.75rem; text-transform: uppercase; color: var(--neon-magenta); font-weight: bold; flex: 1; }
+        input[type=number] { width: 70px; background: black; border: 1px solid var(--neon-cyan); color: white; font-family: 'Orbitron'; padding: 3px; }
+        input[type=range] { flex: 2; accent-color: var(--neon-cyan); }
+        canvas { display: block; width: 100%; height: 100%; }
+        #count-display { font-family: 'Orbitron'; font-size: 1.5rem; }
+    </style>
+</head>
+<body id="main-body">
+
+    <button id="play-game-btn">GAME START</button>
+    <div id="game-overlay">SCORE: <span id="score-val">0</span></div>
+
+    <div id="ui-panel">
+        <h1>CYBER PACKER PRO</h1>
+        <div class="control-group">
+            <label>Durchmesser</label>
+            <div class="row"><input type="range" id="radius-slider" min="200" max="1000" value="600"><input type="number" id="radius-num" value="600"></div>
+        </div>
+        <div class="control-group">
+            <label>Winkel Alpha (°)</label>
+            <div class="row"><input type="range" id="alpha-slider" min="30" max="150" step="0.1" value="60"><input type="number" id="alpha-num" value="60"></div>
+        </div>
+        <div class="control-group">
+            <label>Chip Maße (w/h)</label>
+            <div class="row"><input type="number" id="width-num" value="50"><input type="range" id="width-slider" min="10" max="150" value="50"></div>
+            <div class="row"><input type="number" id="height-num" value="40"><input type="range" id="height-slider" min="10" max="150" value="40"></div>
+        </div>
+        <div class="control-group">
+            <label>Qualität (Ratio)</label>
+            <div class="row"><input type="range" id="ratio-slider" min="10" max="95" value="70"><input type="number" id="ratio-num" value="70"></div>
+            <p style="font-size: 0.6rem; color: #777;">Rote Chips = Hindernisse im Spiel!</p>
+        </div>
+        <div id="stats">
+            <div style="font-size: 0.8rem; opacity: 0.7;">TOTAL CHIPS:</div>
+            <div id="count-display">000</div>
+        </div>
+    </div>
+
+    <div id="canvas-container" id="game-viewport">
+        <canvas id="mainCanvas"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('mainCanvas');
+        const ctx = canvas.getContext('2d');
+        const body = document.getElementById('main-body');
+        const playBtn = document.getElementById('play-game-btn');
+        const scoreDisplay = document.getElementById('game-overlay');
+        const scoreVal = document.getElementById('score-val');
+        
+        let audio = new Audio('chip.mp3');
+        let isGameMode = false;
+        let gameLoop;
+        let snake = [];
+        let direction = { c: 1, r: 0 };
+        let nextDir = { c: 1, r: 0 };
+        let food = null;
+        let score = 0;
+        let validGrid = []; // Speicher für alle betretbaren Chips
+
+        let cfg = { radius: 300, alpha: 60, pWidth: 50, pHeight: 40, padding: 10, gapX: 2, gapY: 2, ratio: 70, zoom: 1.0 };
+
+        // Sync Controls
+        function sync(id, key) {
+            const slider = document.getElementById(id + '-slider');
+            const num = document.getElementById(id + '-num');
+            const update = (val) => {
+                cfg[key] = parseFloat(val) / (key === 'radius' ? 2 : 1);
+                if(slider) slider.value = val; if(num) num.value = val;
+            };
+            if(slider) slider.oninput = (e) => update(e.target.value);
+            if(num) num.onchange = (e) => update(e.target.value);
+            update(slider ? slider.value : num.value);
+        }
+        ['radius', 'alpha', 'pWidth', 'pHeight', 'ratio'].forEach(k => {
+            const id = k === 'pWidth' ? 'width' : k === 'pHeight' ? 'height' : k;
+            sync(id, k);
+        });
+
+        // Game Logic
+        playBtn.onclick = () => {
+            if(!isGameMode) startLevel();
+            else stopLevel();
+        };
+
+        function startLevel() {
+            isGameMode = true;
+            playBtn.innerText = "EXIT GAME";
+            scoreDisplay.style.display = "block";
+            body.classList.add('flicker', 'crt-scanline');
+            score = 0; scoreVal.innerText = "0";
+            
+            // Audio laden (fängt Fehler ab falls File fehlt)
+            audio.play().catch(() => console.log("Audio file 'chip.mp3' not found - playing silent."));
+
+            // Snake initialisieren
+            const startNode = validGrid[Math.floor(validGrid.length / 2)];
+            snake = [{c: startNode.c, r: startNode.r}];
+            spawnFood();
+            
+            gameLoop = setInterval(gameStep, 150);
+        }
+
+        function stopLevel() {
+            isGameMode = false;
+            playBtn.innerText = "GAME START";
+            scoreDisplay.style.display = "none";
+            body.classList.remove('flicker', 'crt-scanline');
+            audio.pause(); audio.currentTime = 0;
+            clearInterval(gameLoop);
+        }
+
+        function spawnFood() {
+            const potential = validGrid.filter(n => n.isGood && !snake.some(s => s.c === n.c && s.r === n.r));
+            food = potential[Math.floor(Math.random() * potential.length)];
+        }
+
+        function gameStep() {
+            direction = nextDir;
+            const head = snake[0];
+            const newHead = { c: head.c + direction.c, r: head.r + direction.r };
+
+            // Check Collision
+            const targetNode = validGrid.find(n => n.c === newHead.c && n.r === newHead.r);
+            if(!targetNode || !targetNode.isGood || snake.some(s => s.c === newHead.c && s.r === newHead.r)) {
+                alert("SYSTEM CRASH! Score: " + score);
+                stopLevel();
+                return;
+            }
+
+            snake.unshift(newHead);
+            if(food && newHead.c === food.c && newHead.r === food.r) {
+                score += 10;
+                scoreVal.innerText = score;
+                spawnFood();
+            } else {
+                snake.pop();
+            }
+        }
+
+        window.addEventListener('keydown', e => {
+            if(!isGameMode) return;
+            if(e.key === 'ArrowUp' && direction.r === 0) nextDir = {c: 0, r: -1};
+            if(e.key === 'ArrowDown' && direction.r === 0) nextDir = {c: 0, r: 1};
+            if(e.key === 'ArrowLeft' && direction.c === 0) nextDir = {c: -1, r: 0};
+            if(e.key === 'ArrowRight' && direction.c === 0) nextDir = {c: 1, r: 0};
+        });
+
+        // Helper: Parallelogramm Points
+        function getVerts(x, y, w, h, alphaDeg) {
+            const alpha = (alphaDeg * Math.PI) / 180;
+            const shift = h / Math.tan(alpha);
+            return [{x, y}, {x: x+w, y}, {x: x+w+shift, y: y+h}, {x: x+shift, y: y+h}];
+        }
+
+        function seededRandom(c, r) {
+            return (Math.abs(Math.sin(c * 12.9898 + r * 78.233) * 43758.5453)) % 1;
+        }
+
+        function draw() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+            const cx = canvas.width / 2; const cy = canvas.height / 2;
+            ctx.fillStyle = "#050505"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            const sX = cfg.pHeight/Math.tan(cfg.alpha*Math.PI/180); 
+            const stX = cfg.pWidth+cfg.gapX; const stY = cfg.pHeight+cfg.gapY;
+            
+            let currentValid = [];
+            const rRange = Math.ceil(cfg.radius*2/cfg.pHeight) + 5;
+            
+            for(let ri=-rRange; ri<rRange; ri++) {
+                for(let ci=-rRange; ci<rRange; ci++) {
+                    const x = cx + ci*stX + ri*sX - cfg.pWidth/2;
+                    const y = cy + ri*stY - cfg.pHeight/2;
+                    const v = getVerts(x, y, cfg.pWidth, cfg.pHeight, cfg.alpha);
+                    
+                    let inside = true;
+                    v.forEach(pt => { if(Math.sqrt((pt.x-cx)**2+(pt.y-cy)**2) > cfg.radius - cfg.padding) inside = false; });
+                    
+                    if(inside) {
+                        const isGood = seededRandom(ci, ri) < cfg.ratio/100;
+                        currentValid.push({c: ci, r: ri, x, y, isGood, v});
+                        
+                        // Zeichnen
+                        ctx.beginPath();
+                        ctx.moveTo(v[0].x, v[0].y); v.forEach(p=>ctx.lineTo(p.x,p.y)); ctx.closePath();
+                        
+                        if(isGameMode) {
+                            // Spiel-Grafik
+                            const isSnake = snake.some(s => s.c === ci && s.r === ri);
+                            const isFood = food && food.c === ci && food.r === ri;
+                            
+                            if(isSnake) {
+                                ctx.fillStyle = var(--neon-cyan);
+                                ctx.strokeStyle = "#fff";
+                                ctx.fill();
+                            } else if(isFood) {
+                                ctx.fillStyle = "white";
+                                ctx.shadowBlur = 15; ctx.shadowColor = "white";
+                                ctx.fill();
+                                ctx.shadowBlur = 0;
+                            } else {
+                                ctx.strokeStyle = isGood ? "rgba(0, 255, 0, 0.2)" : "rgba(255, 0, 0, 0.5)";
+                                if(!isGood) { ctx.fillStyle = "rgba(255,0,0,0.1)"; ctx.fill(); }
+                                ctx.stroke();
+                            }
+                        } else {
+                            // Normaler Wafer Mode
+                            ctx.strokeStyle = isGood ? "#0f0" : "#f00";
+                            ctx.lineWidth = 1;
+                            ctx.stroke();
+                        }
+                    }
+                }
+            }
+            validGrid = currentValid;
+            document.getElementById('count-display').innerText = currentValid.length.toString().padStart(3,'0');
+
+            // Wafer Border
+            ctx.strokeStyle = var(--neon-cyan); ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.arc(cx, cy, cfg.radius, 0, Math.PI*2); ctx.stroke();
+            
+            requestAnimationFrame(draw);
+        }
+        draw();
+    </script>
+</body>
+</html>
